@@ -3,21 +3,16 @@ library(DBI)
 library(excel.link)
 source("excelScript.R", local = TRUE)
 
-
-#
-#
-#
-#Do We not create CIS sheets for deleted course entries?
-#
-#
-#
-
-
-
-
 trim <- function (x) gsub("(^ +)|( +$)", "", x)#gsub("^\\s+|\\s+$", "", x)
 #adds whitespace back to names
 addWhiteUnd <- function (x) gsub("_", " ", x, fixed = TRUE)
+
+#creates a department-specific file and file name, returns the name. Existing files WILL be overwritten.
+genFile <- function(masterName) {
+  file <- paste0(masterName, "_", "3.1.1_3.1.2_A6C.xlsm")
+  file.copy("3.1.1_3.1.2_A6C.xlsm", file, overwrite = TRUE)
+  return (file)
+}
 
 shinyServer(function(input, output, session){
   
@@ -29,7 +24,6 @@ shinyServer(function(input, output, session){
   generated$gsuccess <- "@#%^No Change Made#$%^" #placeholder for success/failure value to be printed on the click of the gen button
   generated$rsuccess <- "#^#^#^NO Change Made^^^^^@#$#@"
   generated$index <- data.frame()               #holds indicies of selected courses
-  generated$testt <- "testt"
   
   com <- xl.get.excel() #COMIDispatch object that points to excel
   dir <- getwd()
@@ -67,21 +61,23 @@ shinyServer(function(input, output, session){
           if (length(viewData$masterList) < 1) { #checking existence of pulled data
             generated$gen <- FALSE
             generated$gsuccess <- "NULL/invalid Data in viewData$masterList, possible Error"
-          } else if (input$deptSelect == "Choose" && input$allBox == FALSE) {
+          } else if (input$deptSelect == "Choose" && input$allBox == FALSE) { #no department chosen
             generated$gen <- FALSE
             generated$gsuccess <- "Please choose a Department."
-          } else if (input$allBox == TRUE) { #all departments and all courses
+          } else if (input$allBox == TRUE) { #all departments and all courses selected
             for (i in 1:length(viewData$masterList)) { #for every department
-              genCISsheets(viewData$masterList[i], dir, com, input$year)
+              genCISsheets(viewData$masterList[[i]], dir, com, input$year, genFile(names(viewData$masterList)[i]))
             }
-            generated$testt <- "all generated"
             generated$gen <- TRUE
             generated$gsuccess <- paste("Success!")
           } else if (length(input$courses) < 1 && input$courseAllBox == FALSE) {#no courses selected
             generated$gen <- FALSE
             generated$gsuccess <- "Please Select at least one course."
+          } else if (input$courseAllBox == TRUE) { #All Courses selected from one department
+            trim <- trimWhiteUnd(input$deptSelect)
+            genCISsheets(viewData$masterList[[trim]], dir, com, input$year, genFile(trim))
+            generated$gsuccess <- "Success!"
           } else {#generate CIS sheets based on the selected dept. and courses
-            generated$testt <- paste("department:", input$deptSelect, "/////course 1:", input$courses[1])
             indecies <- c()
             for (i in 1:length(input$courses)) {#for each selected course
               j <- 1
@@ -91,7 +87,8 @@ shinyServer(function(input, output, session){
               }
               indecies <- c(indecies, generated$index[j,"index"])
             }#now generate CIS sheets on the subset of the masterList specified by the indicies
-            genCISsheets(viewData$masterList[[trimWhiteUnd(input$deptSelect)]][indecies,], dir, com, input$year)
+            trim <- trimWhiteUnd(input$deptSelect)
+            genCISsheets(viewData$masterList[[trim]][indecies,], dir, com, input$year, genFile(trim))
             generated$gen <- TRUE
             generated$gsuccess <- paste("Success!")
           }
@@ -102,6 +99,12 @@ shinyServer(function(input, output, session){
         }
       }
     }#end gen button reactiity
+    #reset the department selection list if the select all box has been checked
+    if (generated$read == TRUE && !is.null(input$allBox)) {
+      if (input$allBox == TRUE) {
+        updateSelectInput(session, inputId = "deptSelect", selected = "Choose")
+      }
+    }
   })#end observe
   #selection lists
   output$selection1 <- renderUI({
@@ -141,7 +144,11 @@ shinyServer(function(input, output, session){
   output$selection4 <- renderUI({
     if (generated$read == TRUE) {
       fluidRow(
-        column(3, offset = 3, textOutput('genSuccess'))
+        column(3, offset = 3, textOutput('genSuccess'), 
+               div( 
+                 class = "busy", 
+                 p("Working...")
+               ))
       )
     } else {}
   })
@@ -160,8 +167,10 @@ shinyServer(function(input, output, session){
           index <- c()
           for (i in 1:length(courseCode)) {
             if (!is.na(courseCode[i])) {
-              vals <- c(vals, paste(courseCode[i], courseTitle[i]))
-              index <- c(index, i)
+              if (grepl("Deleted", courseTitle[i]) == FALSE) {
+                vals <- c(vals, paste(courseCode[i], courseTitle[i]))
+                index <- c(index, i)
+              }
             }
           }
           generated$index <- data.frame(vals, index)
@@ -174,14 +183,12 @@ shinyServer(function(input, output, session){
   #course selection all box
   output$courseSelectionAll <- renderUI({
     if (generated$read == TRUE) {
-      if (!is.null(input$allBox)) {
-        if (input$allBox == TRUE) {} #return no UI
+      if (!is.null(input$allBox) && !is.null(input$deptSelect)) {
+        if (input$allBox == TRUE || input$deptSelect == "Choose") {} #return no UI
         else {
           checkboxInput("courseAllBox", "All Courses")
         }
       }
     }
   })
-  output$test <- renderText({generated$testt})
-  #})#end observe testing
 })#end shinyServer
