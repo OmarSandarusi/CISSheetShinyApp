@@ -1,19 +1,39 @@
+
+#
+#Author: Omar Sandarusi
+#Queen's University
+#September 2015
+#
+#Support file for CISSheetShinyApp
+#
+
 require(excel.link)
 
-#removes all whitespace and replaces with _
-trimWhiteUnd <- function (x) gsub(" ", "_", x, fixed = TRUE)#gsub("(^ +)|( +$)", "", x) for appended/prepended whitespaces
-#switches forward slash with back slash
+#removes all whitespace from a string and replaces with an underscore
+trimWhiteUnd <- function (x) gsub(" ", "_", x, fixed = TRUE)
+#takes a string and switches forward slashes with back slashes
 replaceFwB <- function (x) gsub("/", "\\", x, fixed = TRUE)
-#eliminates all whitespace
+#eliminates all whitespace in a string
 trimWhite <- function (x) gsub(" ", "", x, fixed = TRUE)
 
-#find where the departments are located and return pairs of indices
+#controls xl.write commands that may incur an error by sending an NA value to an excel cell with range limits
+#if an NA value is being written, it writes the 'err' parameter instead. Otherwise it writes the 'val' parameter
+writeNA <- function(val, pos, err) {
+  if (is.na(val)) {
+    xl.write(err, pos)
+  } else {
+    xl.write(val, pos)
+  }
+}
+
+#find where the departments are located and return a data.frame with the pairs of indices for the start and end of 
+#each department's range, along with its name
 getDeptBounds <- function(df) {
   lastDeptIndex <- 4 #holds the position of the first department initially, used to grab the department names
   buffer <- 0 #creates an index gap for when more than two headings occur in a row
   i <- 6
   j <- 1
-  start <- c(5)
+  start <- c(5) #we know the first range begins after the first department name 
   end <- c()
   deptName <- c()
   while (i <= nrow(df)) {
@@ -36,10 +56,12 @@ getDeptBounds <- function(df) {
       #set the start of the next department's range by adding the buffer, which at minimum is 1
       start[j] <- i + buffer
       buffer <- buffer - 1
-    } #decrementing the buffer and then adding one to the count of i accounts for an initialisation bug caused by the function's structure
+    } #the buffer is decremented so that normally i+1+buffer = i+1
+      #  ^this is while it is incrementing through the actual list of courses
     i <- i + 1 + buffer
   }
-  #set the final end and deptName because the while loop has reached the end of the course list but never set the final values
+  #set the final end and deptName because the while loop has reached the end of the 
+  #course list but never set the final values
   end[j] <- i-1
   deptName[j] <- df[lastDeptIndex,2]
   #erase an extra entry that occurs when the last row is a course type header
@@ -52,6 +74,7 @@ getDeptBounds <- function(df) {
 } #end getDeptBounds
 
 #load the master list and separate it by department
+#returns a named list made of data.frames of each department's course list, with headers still intact
 loadMaster <- function (dir, year) {
   setwd(dir)
   wbName <- paste(getwd(), "/Course Master List - ", year, ".xlsm", sep = '', collapse = '')
@@ -61,16 +84,18 @@ loadMaster <- function (dir, year) {
   numRows <- nrow(bounds)
   dept <- list()
   for (i in 1:numRows) {
-    dept[[i]] <- df[bounds$start[i]:bounds$end[i],]
-    names(dept)[i] <- trimWhiteUnd(bounds$deptName[i])
-    #browser()
-    dept[[i]] <- dept[[i]][-1,]
-    #browser()
+    dept[[i]] <- df[bounds$start[i]:bounds$end[i],] #each entry in dept is a department's range of courses (headers included)
+    names(dept)[i] <- trimWhiteUnd(bounds$deptName[i]) #set the name of the department, switching whitespace to underscores
+    dept[[i]] <- dept[[i]][-1,] #removes first header, since it is known and unnecessary
   }
   return (dept)
 } #end loadMaster
 
-#generates CIS sheets for every entry of the data frame passed to it
+#generates CIS sheets for every entry of the data frame passed to it.
+#designed to be called separately for each department in the list returned by loadMaster().
+#writes data to CopyFile.xlsm, which forces it to run VBA code that duplicates 3.1.1_3.1.2_A6C.xlsm and
+#creates CIS sheets named after every course in the department (course names pulled from df). 
+#The generated excel file is named after the specified department and then populated with course data from df.
 genCISsheets <- function (df, dir, com, year, path2) {
   if (!is.null(df)) {
     setwd(dir)
@@ -81,12 +106,12 @@ genCISsheets <- function (df, dir, com, year, path2) {
     #Set CopyFile's target directory
     #xl.write(paste0(replaceFwB(dir),"\\", "3.1.1_3.1.2_A6C.xlsm"), com[["Activesheet"]]$Cells(2,1))
     xl.write(paste0(replaceFwB(dir), "\\", path2), com[["Activesheet"]]$Cells(2,1))
-    #Identify all valid courses in df and pull each index within df as well as each course code
+    #Identify all valid courses in df
     index <- c()
     name <- c()
     for (i in 1:nrow(df)) {
-      #check if course code exists and it is not deleted
-      if (!is.na(df[i,1]) && !grepl("Deleted", df[i,2])){
+      #if course code exists and it is not deleted, record the index and course code
+      if (!is.na(df[i,1]) && !grepl("Deleted", df[i,2])){ 
          index <- c(index, i)
          name <- c(name, trimWhite(df[i,1]))
       }
@@ -127,15 +152,8 @@ genCISsheets <- function (df, dir, com, year, path2) {
   }#end if(is.null(df))
 } #end genCISsheets
 
-#attempts to write to the position in the excel document, changing any NA values to avoid errors
-writeNA <- function(val, pos, err) {
-  if (is.na(val)) {
-    xl.write(err, pos)
-  } else {
-    xl.write(val, pos)
-  }
-}
-
+#to run this script on its own, just hange dir to your active directory and year to the appropriate value of 
+#the Master List file you are trying to read, and uncomment all the following lines
 #com <- xl.get.excel() #COMIDispatch object that points to excel
 #dir <- "C:/Users/Omar/Documents/Database_Job/CISSheetApp"
 #year <- "2015-2016"
